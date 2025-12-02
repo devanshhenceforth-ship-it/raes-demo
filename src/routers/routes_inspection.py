@@ -3,7 +3,7 @@ from ..services.inspection_service import inspection_service
 from ..services.detector import detect_items_from_bytes
 from ..utils.minio_client import minio_client
 import uuid
-
+import asyncio
 router = APIRouter(
     prefix="/inspection",
     tags=["Inspection"],
@@ -42,7 +42,7 @@ async def analyze_video(
             room_id
         )
 
-        detected_items = detect_items_from_bytes(file_content)
+        detected_items = await asyncio.to_thread(detect_items_from_bytes, file_content)
 
         return {"jobId": job_id, "status": "started","detected_items": detected_items}
 
