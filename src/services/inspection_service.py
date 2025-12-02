@@ -305,7 +305,7 @@ class InspectionService:
 
 #         return doc
 
-    async def compare_item_condition(self, item_id: str, image_bytes: bytes):
+    async def compare_item_condition(self, item_id: str, inspection_id: str, property_id: str, image_bytes: bytes):
         """
         Compare current image with the previous image stored in the 'image' field of the item.
         Input is raw image bytes (JPEG/PNG).
@@ -391,7 +391,8 @@ class InspectionService:
             "room_id": room_id,
             "item_name": item_name,
             "previous_image_url": item.get("image"),
-            "current_image_b64": curr_b64,  # optional: store if you want
+            "inspection_id": inspection_id,
+            "property_id": property_id,
             **ai_data,
             "created_at": datetime.utcnow()
         }
@@ -402,7 +403,7 @@ class InspectionService:
         return doc
 
 
-    async def get_comparisons(self, item_id: str = None):#, property_id: str = None):
+    async def get_comparisons(self, item_id: str = None, inspection_id: str = None):#, property_id: str = None):
         """
         List all stored comparisons based on room_id or property_id.
         """
@@ -410,8 +411,8 @@ class InspectionService:
         
         if item_id:
             filter_query["item_id"] = item_id
-        else:
-            return []
+        if inspection_id:
+            filter_query["inspection_id"] = inspection_id
 
         cursor = item_comparisons_collection().find(filter_query).sort("created_at", -1)
         results = await cursor.to_list(length=100)
@@ -431,6 +432,19 @@ class InspectionService:
                                 .sort("created_at", -1).limit(limit)
         results = await cursor.to_list(length=limit)
         return results
+
+    async def get_unique_inspection_ids(self, property_id: str = None):
+        """
+        List all unique inspection_id values, optionally filtered by property_id.
+        """
+        filter_query = {}
+        if property_id:
+            filter_query["property_id"] = property_id
+
+        # Use MongoDB's distinct to get unique inspection_id values
+        unique_ids = await item_comparisons_collection().distinct("inspection_id", filter_query)
+
+        return unique_ids
         
 inspection_service = InspectionService()
 

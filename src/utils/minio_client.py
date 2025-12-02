@@ -8,18 +8,18 @@ logger = logging.getLogger(__name__)
 
 class MinioClient:
     def __init__(self):
-        self.client = Minio(
-            'localhost:9000',
-            access_key='minioadmin',
-            secret_key='minioadmin',
-            secure=False
-        )
         # self.client = Minio(
         #     'localhost:9000',
-        #     access_key='admin',
-        #     secret_key='password',
+        #     access_key='minioadmin',
+        #     secret_key='minioadmin',
         #     secure=False
         # )
+        self.client = Minio(
+            'localhost:9000',
+            access_key='admin',
+            secret_key='password',
+            secure=False
+        )
         self.bucket_name = settings.MINIO_BUCKET_NAME
         self._ensure_bucket_exists()
 
@@ -80,6 +80,13 @@ class MinioClient:
             self.client.fget_object(self.bucket_name, object_name, file_path)
         except S3Error as e:
             logger.error(f"Error downloading file: {e}")
+            raise
+
+    def delete_object(self, object_name: str):
+        try:
+            self.client.remove_object(self.bucket_name, object_name)
+        except S3Error as e:
+            logger.error(f"Error deleting object: {e}")
             raise
 
 minio_client = MinioClient()

@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status,UploadFile,File
 from typing import List
 from bson import ObjectId
 
 from ..db.collections import rooms_collection, items_collection
 from ..models.inventory import Room, Item
 from ..services.inspection_service import inspection_service
+from ..utils.minio_client import minio_client
+import uuid
+import time
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -60,14 +63,38 @@ async def get_room(room_id: str):
 
 # ---------- ITEMS ---------- #
 
-@router.post("/rooms/{room_id}/items", response_description="Add new item", response_model=Item)
-async def create_item(room_id: str, item: Item = Body(...)):
-    item.room_id = room_id
+@router.post("/rooms/{room_id}/items", response_description="Add new item")
+async def create_item(room_id: str, file: UploadFile = File(...)):
+    job_id = str(uuid.uuid4())
+    idx = 0
+    ts = time.time()
+    filename = f"frame_{job_id}_{idx}_{ts}.jpg"
+    frame_object_name = f"frames/{job_id}/{filename}"
+
+    file_content = await file.read()
+    image_url = minio_client.upload_bytes(
+        file_content,
+        frame_object_name,
+        content_type=file.content_type
+    )
+
+    # ▼ FIX: pass required fields here
+    item = Item(
+        room_id=room_id,
+        name=file.filename,
+        description="",
+        category="",
+        condition=""
+    )
+
+    # Add image to dict after model dump
     item_dict = item.model_dump(by_alias=True, exclude={"id"})
-    
+    item_dict["image"] = image_url
+
     col = items_collection()
     result = await col.insert_one(item_dict)
     created = await col.find_one({"_id": result.inserted_id})
+
     return _doc_to_model(created)
 
 @router.get("/rooms/{room_id}/items", response_description="List items for room", response_model=List[Item])
@@ -88,8 +115,49 @@ async def get_item(item_id: str):
         return _doc_to_model(doc)
     raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
 
+@router.delete("/items/{item_id}", response_description="Delete a single item")
+async def delete_item(item_id: str):
+    # Validate ObjectId
+    try:
+        oid = ObjectId(item_id)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid Item ID")
+
+    col = items_collection()
+
+    # Fetch item
+    doc = await col.find_one({"_id": oid})
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+
+    # Attempt MinIO cleanup
+    image_url = doc.get("image")
+    if image_url:
+        try:
+            bucket = minio_client.bucket_name
+            prefix = f"/{bucket}/"
+            if prefix in image_url:
+                object_name = image_url.split(prefix, 1)[1]
+                minio_client.delete_object(object_name)
+        except Exception as e:
+            print("Error deleting MinIO object:", e)
+
+    # Delete DB record
+    delete_result = await col.delete_one({"_id": oid})
+
+    if delete_result.deleted_count != 1:
+        raise HTTPException(status_code=500, detail="Failed to delete item")
+
+    # 🔥 Return success response
+    return {
+        "status": "success",
+        "message": f"Item {item_id} deleted successfully",
+        "id": item_id
+    }
+
+
 @router.get("/properties/{property_id}/inspection-tasks", response_description="Get inspection tasks for all items in property")
-async def get_property_inspection_tasks(property_id: str):
+async def get_property_inspection_tasks(property_id: str):#inspection_id: str=None):
     """
     GET: Generate inspection tasks for all items in a property.
     Returns a summary with tasks organized by room.
@@ -134,9 +202,13 @@ async def get_property_inspection_tasks(property_id: str):
         room_tasks = []
         for item in items:
             item_id = str(item["_id"])
-            comparisons = await inspection_service.get_comparisons(item_id=item_id)
-            number_of_inspections = len(comparisons)
-            status = "inspected" if number_of_inspections > 0 else "pending"
+            # if inspection_id:
+            #     comparisons = await inspection_service.get_comparisons(item_id=item_id,inspection_id=inspection_id)
+            #     number_of_inspections = len(comparisons)
+            #     status = "inspected" if number_of_inspections > 0 else "pending"
+            # else:
+            #     number_of_inspections = 0
+            #     status = "pending"
             
             # Generate task based on item condition
             task_type = "Inspect"
@@ -151,8 +223,8 @@ async def get_property_inspection_tasks(property_id: str):
                 "task_type": task_type,
                 "priority": priority,
                 "description": description,
-                "number_of_inspections": number_of_inspections,
-                "status": status,
+                # "number_of_inspections": number_of_inspections,
+                # "status": status,
                 "category": item.get("category", "Unknown"),
                 "condition": item.get("condition", "Unknown")
             }

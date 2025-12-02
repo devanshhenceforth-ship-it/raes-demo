@@ -64,22 +64,22 @@ async def get_best_images(room_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/compare-item/{item_id}")
-async def compare_item_condition(item_id: str, file: UploadFile = File(...)):
+async def compare_item_condition(item_id: str, inspection_id:str,property_id:str, file: UploadFile = File(...)):
     """
     POST: Compare item condition by analyzing video chunk against stored image.
     Accepts: video chunk of the item
     Returns: AI-powered comparison results with detected changes
     """
     try:
-        if file.content_type not in ["video/mp4", "video/mov", "video/quicktime"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid file type. Only video/mp4 or video/mov accepted."
-            )
+        # if file.content_type not in ["video/mp4", "video/mov", "video/quicktime"]:
+        #     raise HTTPException(
+        #         status_code=400,
+        #         detail="Invalid file type. Only video/mp4 or video/mov accepted."
+        #     )
         
-        video_bytes = await file.read()
+        image_bytes = await file.read()
         
-        result = await inspection_service.compare_item_condition(item_id, video_bytes)
+        result = await inspection_service.compare_item_condition(item_id,inspection_id,property_id, image_bytes)
         
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -93,17 +93,32 @@ async def compare_item_condition(item_id: str, file: UploadFile = File(...)):
 
 
 @router.get("/comparisons")
-async def list_comparisons(item_id: str = None):
+async def list_comparisons(item_id: str = None, inspection_id: str = None):
     """
     GET: List all stored comparisons based on item_id.
     """
     try:
-        if not item_id:
-             raise HTTPException(status_code=400, detail="item_id must be provided")
+        # if not item_id:
+        #      raise HTTPException(status_code=400, detail="item_id must be provided")
              
-        results = await inspection_service.get_comparisons(item_id)
+        results = await inspection_service.get_comparisons(item_id,inspection_id)
         return results
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/unique-inspections")
+async def get_unique_inspection_ids(property_id: str = None):
+    """
+    List all unique inspection_id values, optionally filtered by property_id.
+    """
+    filter_query = {}
+    if property_id:
+        filter_query["property_id"] = property_id
+
+    # Use MongoDB's distinct to get unique inspection_id values
+    unique_ids = await inspection_service.get_unique_inspection_ids(property_id)
+
+    return unique_ids
