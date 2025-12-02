@@ -67,10 +67,10 @@ class InspectionService:
                 asyncio.create_task(self._save_chunk(job_id, chunk, object_name, room_id))
 
                 # Update previous items
-                if chunk.issues:
-                    self.prev_items.setdefault(job_id, set()).update(
-                        i.item for i in chunk.issues if i.item
-                    )
+                # if chunk.issues:
+                #     self.prev_items.setdefault(job_id, set()).update(
+                #         i.item for i in chunk.issues if i.item
+                #     )
 
         except Exception as e:
             print("[VIDEO_ANALYSIS] Background Error:", e)
