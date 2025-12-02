@@ -41,7 +41,10 @@ class InspectionService:
             if prev_items:
                 exclude_text = (
                     "Do NOT include the following items, they were already detected:\n"
-                    + "\n".join(f"- {item['name']} with description: {item['description']}" for item in prev_items)
+                   +"\n".join(
+    f"- {item.get('name', 'Unknown')} with description: {item.get('description', 'No description')}"
+    for item in prev_items
+)
                 )
 
             prompt = (
