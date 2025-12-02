@@ -172,10 +172,143 @@ class InspectionService:
         if final_items:
             await items_collection().insert_many(final_items)
 
-    async def compare_item_condition(self, item_id: str, video_bytes: bytes):
+#     async def compare_item_condition(self, item_id: str, video_bytes: bytes):
+#         """
+#         Minimal production version using Gemini (image + video comparison).
+#         No cv2. Fully compliant with LangChain Gemini input format.
+#         """
+#         # --------------------------------------
+#         # 1. VALIDATE ITEM
+#         # --------------------------------------
+#         try:
+#             oid = ObjectId(item_id)
+#         except Exception as e:
+#             return {"error": f"Invalid item ID: {e}"}
+
+#         item = await items_collection().find_one({"_id": oid})
+#         if not item:
+#             return {"error": "Item not found"}
+
+#         room_id = item.get("room_id")
+#         item_name = item.get("name", "Unknown")
+
+#         # --------------------------------------
+#         # 2. FIND PREVIOUS IMAGE (if exists)
+#         # --------------------------------------
+#         previous_image_object = None
+#         last = await inspections_collection().find_one(
+#             {"room_id": room_id},
+#             sort=[("created_at", -1)]
+#         )
+
+#         if last and "job_id" in last:
+#             # We need to find the image for this item in the previous inspection
+#             # This logic was relying on file naming convention in local dir
+#             # Now we should query the items collection for the previous item image
+#             # OR list objects in MinIO (less efficient)
+            
+#             # Better approach: Find the item in the items collection that matches this room and name
+#             # But we already have 'item' which IS the item.
+#             # Wait, the logic below tries to find the image from the LAST inspection.
+#             # The 'item' document contains 'images' list. The last image in that list should be the latest.
+            
+#             if item.get("images"):
+#                 # item['images'] contains URLs. We need to parse object name if we want to download it.
+#                 # But wait, we need base64 for Gemini.
+#                 # If the URL is from MinIO, we can extract object name.
+#                 # Let's assume the URL structure we created: protocol://endpoint/bucket/object_name
+                
+#                 latest_image_url = item["images"][-1]
+#                 # Extract object name from URL
+#                 # Example: http://localhost:9000/raes-demo/frames/job_id/filename.jpg
+#                 parts = latest_image_url.split(f"/{settings.MINIO_BUCKET_NAME}/")
+#                 if len(parts) > 1:
+#                     previous_image_object = parts[1]
+
+#         # --------------------------------------
+#         # 3. ENCODE PREVIOUS IMAGE (optional)
+#         # --------------------------------------
+#         prev_b64 = None
+#         prev_b64 = None
+#         if previous_image_object:
+#             try:
+#                 img_bytes = minio_client.get_file_content(previous_image_object)
+#                 prev_b64 = base64.b64encode(img_bytes).decode()
+#             except Exception as e:
+#                 print(f"Error reading previous image from MinIO: {e}")
+
+#         # --------------------------------------
+#         # 4. ENCODE CURRENT VIDEO DIRECTLY
+#         # --------------------------------------
+#         curr_video_b64 = base64.b64encode(video_bytes).decode()
+
+#         # --------------------------------------
+#         # 5. BUILD GEMINI CONTENT
+#         # --------------------------------------
+#         if prev_b64:
+#             prompt = f"Compare the previous image and the current video of item: {item_name}."
+#             content = [
+#                     {"type": "text", "text": prompt},
+#                     {"type": "image_url", "image_url": f"data:image/jpeg;base64,{prev_b64}"},
+#                     {
+#                         "type": "media",
+#                         "data": curr_video_b64,        # base64 string (no data:<mime>;prefix)
+#                         "mime_type": "video/mp4",      # set actual mime
+#                     },
+#                 ]
+#         else:
+#             prompt = f"Analyze the current condition of item (video only): {item_name}."
+#             content = [
+#     {"type": "text", "text": prompt},
+#     {
+#         "type": "media",
+#         "data": curr_video_b64,        # base64 string (no data:<mime>;prefix)
+#         "mime_type": "video/mp4",      # set actual mime
+#     },
+# ]
+
+#         msg = HumanMessage(content=content)
+
+#         # --------------------------------------
+#         # 6. CALL GEMINI (STRUCTURED OUTPUT)
+#         # --------------------------------------
+#         try:
+#             result: ItemComparisonResult = await asyncio.to_thread(
+#                 self.item_comparison_llm.invoke, [msg]
+#             )
+#             ai_data = result.dict()
+#         except Exception as e:
+#             print("AI Error:", e)
+#             ai_data = {
+#                 "changes_detected": ["AI failure"],
+#                 "condition_change": "Unknown",
+#                 "severity": "Medium",
+#                 "recommendations": ["Manual inspection required"],
+#                 "analysis": str(e),
+#             }
+
+#         # --------------------------------------
+#         # 7. SAVE TO DB
+#         # --------------------------------------
+#         doc = {
+#             "item_id": item_id,
+#             "room_id": room_id,
+#             "item_name": item_name,
+#             "previous_image_url": item.get("images", [])[-1] if item.get("images") else None,
+#             "current_video_b64": None,  # not stored for size reasons
+#             **ai_data,
+#             "created_at": datetime.utcnow()
+#         }
+
+#         res = await item_comparisons_collection().insert_one(doc)
+#         doc["_id"] = str(res.inserted_id)
+
+#         return doc
+
+    async def compare_item_condition(self, item_id: str, image_bytes: bytes):
         """
-        Minimal production version using Gemini (image + video comparison).
-        No cv2. Fully compliant with LangChain Gemini input format.
+        Compare current image with the previous image stored in the 'image' field of the item.
+        Input is raw image bytes (JPEG/PNG).
         """
         # --------------------------------------
         # 1. VALIDATE ITEM
@@ -193,84 +326,47 @@ class InspectionService:
         item_name = item.get("name", "Unknown")
 
         # --------------------------------------
-        # 2. FIND PREVIOUS IMAGE (if exists)
-        # --------------------------------------
-        previous_image_object = None
-        last = await inspections_collection().find_one(
-            {"room_id": room_id},
-            sort=[("created_at", -1)]
-        )
-
-        if last and "job_id" in last:
-            # We need to find the image for this item in the previous inspection
-            # This logic was relying on file naming convention in local dir
-            # Now we should query the items collection for the previous item image
-            # OR list objects in MinIO (less efficient)
-            
-            # Better approach: Find the item in the items collection that matches this room and name
-            # But we already have 'item' which IS the item.
-            # Wait, the logic below tries to find the image from the LAST inspection.
-            # The 'item' document contains 'images' list. The last image in that list should be the latest.
-            
-            if item.get("images"):
-                # item['images'] contains URLs. We need to parse object name if we want to download it.
-                # But wait, we need base64 for Gemini.
-                # If the URL is from MinIO, we can extract object name.
-                # Let's assume the URL structure we created: protocol://endpoint/bucket/object_name
-                
-                latest_image_url = item["images"][-1]
-                # Extract object name from URL
-                # Example: http://localhost:9000/raes-demo/frames/job_id/filename.jpg
-                parts = latest_image_url.split(f"/{settings.MINIO_BUCKET_NAME}/")
-                if len(parts) > 1:
-                    previous_image_object = parts[1]
-
-        # --------------------------------------
-        # 3. ENCODE PREVIOUS IMAGE (optional)
+        # 2. GET PREVIOUS IMAGE FROM ITEM
         # --------------------------------------
         prev_b64 = None
-        prev_b64 = None
-        if previous_image_object:
-            try:
-                img_bytes = minio_client.get_file_content(previous_image_object)
-                prev_b64 = base64.b64encode(img_bytes).decode()
-            except Exception as e:
-                print(f"Error reading previous image from MinIO: {e}")
+        if item.get("image"):
+            if item["image"].startswith("data:image"):
+                # Already base64 encoded
+                prev_b64 = item["image"].split(",")[1]
+            else:
+                # If image is a URL, skip fetching
+                prev_b64 = None
 
         # --------------------------------------
-        # 4. ENCODE CURRENT VIDEO DIRECTLY
+        # 3. ENCODE CURRENT IMAGE
         # --------------------------------------
-        curr_video_b64 = base64.b64encode(video_bytes).decode()
+        curr_b64 = base64.b64encode(image_bytes).decode()
 
         # --------------------------------------
-        # 5. BUILD GEMINI CONTENT
+        # 4. BUILD GEMINI PROMPT & CONTENT
         # --------------------------------------
         if prev_b64:
-            prompt = f"Compare the previous image and the current video of item: {item_name}."
+            prompt = (
+                f"Compare the previous image and the current image of item: {item_name}. "
+                f"The first image is the previous state, the second image is the current state. "
+                f"Describe any changes in condition, damage, or anomalies."
+            )
             content = [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": f"data:image/jpeg;base64,{prev_b64}"},
-                    {
-                        "type": "media",
-                        "data": curr_video_b64,        # base64 string (no data:<mime>;prefix)
-                        "mime_type": "video/mp4",      # set actual mime
-                    },
-                ]
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": f"data:image/jpeg;base64,{prev_b64}"},
+                {"type": "image_url", "image_url": f"data:image/jpeg;base64,{curr_b64}"},
+            ]
         else:
-            prompt = f"Analyze the current condition of item (video only): {item_name}."
+            prompt = f"Analyze the current condition of item (image only): {item_name}."
             content = [
-    {"type": "text", "text": prompt},
-    {
-        "type": "media",
-        "data": curr_video_b64,        # base64 string (no data:<mime>;prefix)
-        "mime_type": "video/mp4",      # set actual mime
-    },
-]
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": f"data:image/jpeg;base64,{curr_b64}"},
+            ]
 
         msg = HumanMessage(content=content)
 
         # --------------------------------------
-        # 6. CALL GEMINI (STRUCTURED OUTPUT)
+        # 5. CALL GEMINI (STRUCTURED OUTPUT)
         # --------------------------------------
         try:
             result: ItemComparisonResult = await asyncio.to_thread(
@@ -288,14 +384,14 @@ class InspectionService:
             }
 
         # --------------------------------------
-        # 7. SAVE TO DB
+        # 6. SAVE TO DB
         # --------------------------------------
         doc = {
             "item_id": item_id,
             "room_id": room_id,
             "item_name": item_name,
-            "previous_image_url": item.get("images", [])[-1] if item.get("images") else None,
-            "current_video_b64": None,  # not stored for size reasons
+            "previous_image_url": item.get("image"),
+            "current_image_b64": curr_b64,  # optional: store if you want
             **ai_data,
             "created_at": datetime.utcnow()
         }
@@ -305,6 +401,7 @@ class InspectionService:
 
         return doc
 
+
     async def get_comparisons(self, item_id: str = None):#, property_id: str = None):
         """
         List all stored comparisons based on room_id or property_id.
@@ -313,16 +410,7 @@ class InspectionService:
         
         if item_id:
             filter_query["item_id"] = item_id
-        # elif property_id:
-        #     # Find all rooms for this property
-        #     rooms = await rooms_collection().find({"property_id": property_id}).to_list(length=1000)
-        #     room_ids = [str(r["_id"]) for r in rooms]
-        #     if not room_ids:
-        #         return []
-        #     filter_query["room_id"] = {"$in": room_ids}
         else:
-            # If neither is provided, return empty list or all? 
-            # Let's return empty to be safe/efficient unless specific requirement
             return []
 
         cursor = item_comparisons_collection().find(filter_query).sort("created_at", -1)

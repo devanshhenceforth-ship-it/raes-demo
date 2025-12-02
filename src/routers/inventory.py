@@ -143,23 +143,6 @@ async def get_property_inspection_tasks(property_id: str):
             priority = "Medium"
             description = f"Routine inspection of {item['name']}"
             
-            condition = item.get("condition", "").lower()
-            if condition in ["poor", "damaged"]:
-                task_type = "Repair"
-                priority = "High"
-                description = f"Repair required for {item['name']} - condition: {item.get('condition')}"
-            elif condition == "fair":
-                task_type = "Inspect"
-                priority = "Medium"
-                description = f"Detailed inspection needed for {item['name']}"
-            
-            # Check warranty expiry
-            if item.get("warranty_expiry"):
-                from datetime import datetime
-                if item["warranty_expiry"] < datetime.utcnow():
-                    priority = "High"
-                    description += " (Warranty expired)"
-            
             task = {
                 "item_id": item_id,
                 "item_name": item["name"],
