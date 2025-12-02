@@ -8,18 +8,18 @@ logger = logging.getLogger(__name__)
 
 class MinioClient:
     def __init__(self):
-        # self.client = Minio(
-        #     'localhost:9000',
-        #     access_key='minioadmin',
-        #     secret_key='minioadmin',
-        #     secure=False
-        # )
         self.client = Minio(
             'localhost:9000',
-            access_key='admin',
-            secret_key='password',
+            access_key='minioadmin',
+            secret_key='minioadmin',
             secure=False
         )
+        # self.client = Minio(
+        #     'localhost:9000',
+        #     access_key='admin',
+        #     secret_key='password',
+        #     secure=False
+        # )
         self.bucket_name = settings.MINIO_BUCKET_NAME
         self._ensure_bucket_exists()
 
