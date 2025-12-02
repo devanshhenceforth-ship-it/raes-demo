@@ -33,33 +33,48 @@ class InspectionService:
         try:
             # Read video from MinIO
             video_bytes = minio_client.get_file_content(object_name)
-                
             video_b64 = base64.b64encode(video_bytes).decode()
+
+            # Get previously detected items for this job
+            prev_items = await self.get_items(room_id)  # <-- await here!
+            exclude_text = ""
+            if prev_items:
+                exclude_text = (
+                    "Do NOT include the following items, they were already detected:\n"
+                    + "\n".join(f"- {item['name']} with description: {item['description']}" for item in prev_items)
+                )
+
             prompt = (
                 "Analyze the attached video and extract the items that can be inspected "
                 "before giving the property on rent. "
                 "For each item, provide a structured list with: timestamp (ms), "
-                "item name, description. "
+                "item name, description.\n\n"
+                f"{exclude_text}"
             )
+
             message = HumanMessage(
                 content=[
                     {"type": "text", "text": prompt},
                     {"type": "media", "data": video_b64, "mime_type": "video/mp4"},
                 ]
             )
-            
+
             async for chunk in self.structured_llm.astream([message]):
-                # chunk is AllAnalyzerResponse (or partial)
-                # We need to serialize it to send over queue
+                # Serialize for SSE queue
                 await queue.put(chunk.model_dump_json())
-                
-                # Store every chunk in MongoDB as requested
+
+                # Save chunk to DB
                 asyncio.create_task(self._save_chunk(job_id, chunk, object_name, room_id))
-            
-            # await queue.put("[DONE]")
+
+                # Update previous items
+                if chunk.issues:
+                    self.prev_items.setdefault(job_id, set()).update(
+                        i.item for i in chunk.issues if i.item
+                    )
 
         except Exception as e:
             print("[VIDEO_ANALYSIS] Background Error:", e)
+
 
     async def extract_best_images(self, room_id: str):
         # Fetch all items for this room from the DB
@@ -156,190 +171,6 @@ class InspectionService:
         # ---------------------------------------------
         if final_items:
             await items_collection().insert_many(final_items)
-
-
-    # async def simple_video_analysis(self, video_bytes: bytes):
-    #     try:
-    #         video_b64 = base64.b64encode(video_bytes).decode()
-    #         prompt = (
-    #             "Analyze the attached video and extract the items that can be inspected "
-    #             "before giving the property on rent. "
-    #             "For each item, provide a structured list with: timestamp (ms), "
-    #             "item name, description. "
-    #         )
-    #         message = HumanMessage(
-    #             content=[
-    #                 {"type": "text", "text": prompt},
-    #                 {"type": "media", "data": video_b64, "mime_type": "video/mp4"},
-    #             ]
-    #         )
-            
-    #         llm_result = await asyncio.to_thread(self.structured_llm.invoke, [message])
-            
-    #         response_payload = {
-    #             "issues": llm_result.issues,
-    #         }
-            
-    #         # await sio.emit("task_detected", response_payload)
-    #         return response_payload
-
-    #     except Exception as e:
-    #         print("[VIDEO_ANALYSIS] Background Error:", e)
-    #         # await sio.emit("task_error", {"error": str(e)})
-    #         return None
-
-    # async def extract_best_images(self, room_id: str):
-    #     # Fetch all items for this room from the DB
-    #     items_col = items_collection()
-    #     cursor = items_col.find({"room_id": room_id})
-        
-    #     saved_items = []
-    #     async for item in cursor:
-    #         saved_items.append({
-    #             "item_id": str(item["_id"]),
-    #             "name": item.get("name"),
-    #             "category": item.get("category"),
-    #             "condition": item.get("condition"),
-    #             "images": item.get("images", []),
-    #             "notes": item.get("notes", ""),
-    #             "created_at": item.get("created_at"),
-    #             "updated_at": item.get("updated_at")
-    #         })
-        
-    #     return saved_items
-
-    # async def extract_best_images(self, room_id: str):
-    #     doc = await inspections_collection().find_one(
-    #         {"room_id": room_id}, sort=[("created_at", -1)]
-    #     )
-    #     if not doc or "video_path" not in doc:
-    #         return []
-
-    #     object_name = doc["video_path"]
-    #     job_id = doc.get("job_id", "unknown")
-    #     issues = doc.get("issues", [])
-
-    #     # Download video to temp file for CV2
-    #     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
-    #         try:
-    #             minio_client.download_file(object_name, tmp_video.name)
-    #             cap = cv2.VideoCapture(tmp_video.name)
-    #         except Exception as e:
-    #             print(f"Error downloading video from MinIO: {e}")
-    #             return []
-
-    #     # No local output dir needed, we upload directly
-    #     # output_dir = f"static/uploads/{job_id}_frames"
-    #     # os.makedirs(output_dir, exist_ok=True)
-
-    #     final_items = []
-    #     hashes = []
-
-    #     # Create pHash once (reusable)
-    #     phasher = cv2.img_hash.PHash_create()
-
-    #     for i, issue in enumerate(issues):
-    #         ts = issue.get("timestamp", i * 1000)
-    #         cap.set(cv2.CAP_PROP_POS_MSEC, ts)
-    #         ok, frame = cap.read()
-    #         if not ok:
-    #             continue
-
-    #         # Pre-resize to 8x8 + grayscale (fixes pHash sensitivity)
-    #         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    #         resized = cv2.resize(gray, (8, 8), interpolation=cv2.INTER_AREA)
-            
-    #         # Compute hash
-    #         phash = phasher.compute(resized.astype(np.uint8))
-            
-    #         # Check Hamming distance ≤ 2
-    #         is_duplicate = False
-    #         for existing_hash, _ in hashes:
-    #             hamming = cv2.norm(phash, existing_hash, cv2.NORM_HAMMING)
-    #             if hamming <= 2:
-    #                 is_duplicate = True
-    #                 break
-            
-    #         if is_duplicate:
-    #             continue
-
-    #         hashes.append((phash, ts))
-            
-    #         name = f"frame_{len(final_items)}_{ts}"
-    #         safe_name = "".join(c for c in name if c.isalnum() or c in " -_").strip()
-    #         filename = f"{safe_name}.jpg"
-            
-    #         # Encode frame to bytes
-    #         success, buffer = cv2.imencode(".jpg", frame)
-    #         if not success:
-    #             continue
-            
-    #         frame_bytes = buffer.tobytes()
-    #         frame_object_name = f"frames/{job_id}/{filename}"
-            
-    #         # Upload to MinIO
-    #         image_url = minio_client.upload_bytes(frame_bytes, frame_object_name, content_type="image/jpeg")
-
-    #         final_items.append({
-    #             "room_id": room_id,
-    #             "name": issue.get("item", f"item_{len(final_items)}"),
-    #             "timestamp": ts,
-    #             "description": issue.get("description", ""),
-    #             "image": image_url,
-    #             "image_path": frame_object_name,
-    #             "hash": phash.tobytes().hex()
-    #         })
-
-    #     cap.release()
-    #     os.unlink(tmp_video.name) # Clean up temp file
-        
-    #     # Save items to database
-    #     items_col = items_collection()
-    #     saved_items = []
-        
-    #     for item_data in final_items:
-    #         item_name = item_data["name"]
-            
-    #         # Check if item already exists in this room
-    #         existing = await items_col.find_one({
-    #             "room_id": room_id,
-    #             "name": item_name
-    #         })
-            
-    #         if existing:
-    #             # Update existing item - add new image to images array
-    #             await items_col.update_one(
-    #                 {"_id": existing["_id"]},
-    #                 {
-    #                     "$set": {
-    #                         "updated_at": datetime.utcnow()
-    #                     },
-    #                     "$addToSet": {
-    #                         "images": item_data["image"]
-    #                     }
-    #                 }
-    #             )
-    #             item_id = str(existing["_id"])
-    #         else:
-    #             # Create new item
-    #             new_item = {
-    #                 "room_id": room_id,
-    #                 "name": item_name,
-    #                 "category": "Unknown",  # Will be updated by AI later
-    #                 "condition": "Unknown",  # Will be updated by AI later
-    #                 "images": [item_data["image"]],
-    #                 "notes": f"Auto-detected from inspection. {item_data['description']}",
-    #                 "created_at": datetime.utcnow(),
-    #                 "updated_at": datetime.utcnow()
-    #             }
-    #             result = await items_col.insert_one(new_item)
-    #             item_id = str(result.inserted_id)
-            
-    #         # Add item_id to response
-    #         item_data["item_id"] = item_id
-    #         saved_items.append(item_data)
-        
-    #     return saved_items
 
     async def compare_item_condition(self, item_id: str, video_bytes: bytes):
         """
@@ -501,6 +332,16 @@ class InspectionService:
         for res in results:
             res["_id"] = str(res["_id"])
             
+        return results
+
+    async def get_items(self, room_id: str = None, limit: int = 50):
+        """
+        Get previous items for a room: only name and description.
+        """
+        filter_query = {"room_id": room_id}
+        cursor = items_collection().find(filter_query, {"_id": 0, "name": 1, "description": 1}) \
+                                .sort("created_at", -1).limit(limit)
+        results = await cursor.to_list(length=limit)
         return results
         
 inspection_service = InspectionService()
