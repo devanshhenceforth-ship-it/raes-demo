@@ -49,6 +49,7 @@ yolo_model = YOLO("yolov8n.pt")  # nano model (lightweight)
 #     return detected
 
 def detect_items_from_bytes(video_bytes: bytes):
+    print("Detect items from API hit start")
     temp = "/tmp/detect_temp.mp4"
     with open(temp, "wb") as f:
         f.write(video_bytes)
