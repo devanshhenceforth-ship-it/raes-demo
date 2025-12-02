@@ -159,34 +159,34 @@ class InspectionService:
 
 
     # async def simple_video_analysis(self, video_bytes: bytes):
-        try:
-            video_b64 = base64.b64encode(video_bytes).decode()
-            prompt = (
-                "Analyze the attached video and extract the items that can be inspected "
-                "before giving the property on rent. "
-                "For each item, provide a structured list with: timestamp (ms), "
-                "item name, description. "
-            )
-            message = HumanMessage(
-                content=[
-                    {"type": "text", "text": prompt},
-                    {"type": "media", "data": video_b64, "mime_type": "video/mp4"},
-                ]
-            )
+    #     try:
+    #         video_b64 = base64.b64encode(video_bytes).decode()
+    #         prompt = (
+    #             "Analyze the attached video and extract the items that can be inspected "
+    #             "before giving the property on rent. "
+    #             "For each item, provide a structured list with: timestamp (ms), "
+    #             "item name, description. "
+    #         )
+    #         message = HumanMessage(
+    #             content=[
+    #                 {"type": "text", "text": prompt},
+    #                 {"type": "media", "data": video_b64, "mime_type": "video/mp4"},
+    #             ]
+    #         )
             
-            llm_result = await asyncio.to_thread(self.structured_llm.invoke, [message])
+    #         llm_result = await asyncio.to_thread(self.structured_llm.invoke, [message])
             
-            response_payload = {
-                "issues": llm_result.issues,
-            }
+    #         response_payload = {
+    #             "issues": llm_result.issues,
+    #         }
             
-            # await sio.emit("task_detected", response_payload)
-            return response_payload
+    #         # await sio.emit("task_detected", response_payload)
+    #         return response_payload
 
-        except Exception as e:
-            print("[VIDEO_ANALYSIS] Background Error:", e)
-            # await sio.emit("task_error", {"error": str(e)})
-            return None
+    #     except Exception as e:
+    #         print("[VIDEO_ANALYSIS] Background Error:", e)
+    #         # await sio.emit("task_error", {"error": str(e)})
+    #         return None
 
     # async def extract_best_images(self, room_id: str):
     #     # Fetch all items for this room from the DB

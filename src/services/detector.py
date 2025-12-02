@@ -18,6 +18,7 @@ def detect_items_from_bytes(video_bytes: bytes):
     frame_step = int(fps) if fps > 0 else 1  # 1 frame per second
 
     detected = []
+    last_label = None     
     frame_idx = 0
 
     while True:
@@ -32,6 +33,9 @@ def detect_items_from_bytes(video_bytes: bytes):
             for box in r.boxes:
                 cls = int(box.cls)
                 label = r.names[cls]
+                if label == last_label:
+                    continue
+                last_label = label
 
                 detected.append({
                     "timestamp": int(frame_idx / fps) if fps > 0 else 0,
