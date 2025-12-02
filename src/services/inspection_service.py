@@ -158,7 +158,7 @@ class InspectionService:
             await items_collection().insert_many(final_items)
 
 
-    async def simple_video_analysis(self, video_bytes: bytes):
+    # async def simple_video_analysis(self, video_bytes: bytes):
         try:
             video_b64 = base64.b64encode(video_bytes).decode()
             prompt = (

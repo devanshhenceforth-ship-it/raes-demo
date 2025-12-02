@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from ..services.inspection_service import inspection_service
+from ..services.detector import detect_items_from_bytes
 from ..utils.minio_client import minio_client
 import uuid
 
@@ -41,7 +42,9 @@ async def analyze_video(
             room_id
         )
 
-        return {"jobId": job_id, "status": "started"}
+        detected_items = detect_items_from_bytes(file_content)
+
+        return {"jobId": job_id, "status": "started","detected_items": detected_items}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
