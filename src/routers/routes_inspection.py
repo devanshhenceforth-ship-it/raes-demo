@@ -42,9 +42,13 @@ async def analyze_video(
             room_id
         )
 
-        detected_items = await asyncio.to_thread(detect_items_from_bytes, file_content)
+        background.add_task(
+            detect_items_from_bytes,
+            file_content,
+            room_id
+        )
 
-        return {"jobId": job_id, "status": "started","detected_items": detected_items}
+        return {"jobId": job_id, "status": "started","detected_items": {"items": []}}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
