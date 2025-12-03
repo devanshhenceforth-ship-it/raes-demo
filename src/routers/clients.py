@@ -42,6 +42,8 @@ async def login(email: str):
     docs = await col.find_one({"email": email})
     if docs is None:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    docs["_id"] = str(docs["_id"])  # <-- convert ObjectId to string
     return docs
 
 @router.get("/{id}", response_description="Get a single client")  # response_model=Client)
