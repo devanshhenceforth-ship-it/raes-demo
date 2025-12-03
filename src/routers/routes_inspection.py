@@ -1,13 +1,57 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
-from ..services.inspection_service import inspection_service
+from ..services.image_inspection_service import inspection_service
 from ..services.detector import detect_items_from_bytes
 from ..utils.minio_client import minio_client
 import uuid
-import asyncio
+from datetime import datetime
 router = APIRouter(
     prefix="/inspection",
     tags=["Inspection"],
 )
+
+
+# @router.post("/analyze-video")
+# async def analyze_video(
+#     background: BackgroundTasks,
+#     file: UploadFile = File(...),
+#     room_id: str = Form(...)
+# ):
+#     """
+#     POST: Start video analysis job
+#     Returns: jobId (use with SSE endpoint)
+#     """
+#     try:
+#         if file.content_type not in ["video/mp4", "video/mov", "video/quicktime"]:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Invalid file type. Only video/mp4 or video/mov accepted."
+#             )
+
+#         job_id = str(uuid.uuid4())
+#         object_name = f"uploads/{job_id}.mp4"
+        
+#         # Upload to MinIO
+#         file_content = await file.read()
+#         minio_client.upload_bytes(file_content, object_name, content_type=file.content_type)
+
+#         background.add_task(
+#             detect_items_from_bytes,
+#             file_content,
+#             room_id
+#         )
+
+#         # Start background task
+#         background.add_task(
+#             inspection_service.analyze_video_background,
+#             job_id,
+#             object_name, 
+#             room_id
+#         )
+
+#         return {"jobId": job_id, "status": "started","detected_items": {"items": []}}
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/analyze-video")
@@ -21,31 +65,22 @@ async def analyze_video(
     Returns: jobId (use with SSE endpoint)
     """
     try:
-        if file.content_type not in ["video/mp4", "video/mov", "video/quicktime"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid file type. Only video/mp4 or video/mov accepted."
-            )
-
+        current_time = datetime.now()
         job_id = str(uuid.uuid4())
-        object_name = f"uploads/{job_id}.mp4"
+        object_name = f"uploads/{job_id}/{file.filename}"
         
+        content_type = file.content_type
+        print("content_type:::",content_type)
         # Upload to MinIO
         file_content = await file.read()
-        minio_client.upload_bytes(file_content, object_name, content_type=file.content_type)
-
-        background.add_task(
-            detect_items_from_bytes,
-            file_content,
-            room_id
-        )
-
         # Start background task
         background.add_task(
             inspection_service.analyze_video_background,
             job_id,
-            object_name, 
-            room_id
+            file_content, 
+            room_id,
+            object_name,
+            current_time
         )
 
         return {"jobId": job_id, "status": "started","detected_items": {"items": []}}
@@ -75,12 +110,6 @@ async def compare_item_condition(item_id: str, inspection_id:str,property_id:str
     Returns: AI-powered comparison results with detected changes
     """
     try:
-        # if file.content_type not in ["video/mp4", "video/mov", "video/quicktime"]:
-        #     raise HTTPException(
-        #         status_code=400,
-        #         detail="Invalid file type. Only video/mp4 or video/mov accepted."
-        #     )
-        
         image_bytes = await file.read()
         
         result = await inspection_service.compare_item_condition(item_id,inspection_id,property_id, image_bytes)

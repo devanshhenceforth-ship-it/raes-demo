@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     MAX_CLIENT_FETCH_LIMIT: int = 1000
 
-    GOOGLE_MODEL: str = "gemini-2.5-flash"
+    GOOGLE_MODEL: str = "gemini-2.0-flash"
     GOOGLE_API_KEY: str
 
     # MinIO

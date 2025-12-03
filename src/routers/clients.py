@@ -36,6 +36,14 @@ async def list_clients(limit: int = settings.MAX_CLIENT_FETCH_LIMIT):
     docs = await col.find().to_list(length=limit)
     return [_doc_to_client(d) for d in docs]
 
+@router.get("/login", response_description="Login")
+async def login(email: str):
+    col = clients_collection()
+    docs = await col.find_one({"email": email})
+    if docs is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return docs
+
 @router.get("/{id}", response_description="Get a single client")  # response_model=Client)
 async def show_client(id: str):
     try:

@@ -223,10 +223,9 @@ async def get_property_inspection_tasks(property_id: str):#inspection_id: str=No
                 "task_type": task_type,
                 "priority": priority,
                 "description": description,
-                # "number_of_inspections": number_of_inspections,
-                # "status": status,
                 "category": item.get("category", "Unknown"),
-                "condition": item.get("condition", "Unknown")
+                "condition": item.get("condition", "Unknown"),
+                "image_url": item.get("image", "Unknown")
             }
             
             room_tasks.append(task)

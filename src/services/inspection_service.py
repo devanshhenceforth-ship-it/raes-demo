@@ -33,11 +33,11 @@ class InspectionService:
         print("detect items from AI hit start")
         try:
             # Read video from MinIO
-            video_bytes = minio_client.get_file_content(object_name)
-            video_b64 = base64.b64encode(video_bytes).decode()
+            image_bytes = minio_client.get_file_content(object_name)
+            image_b64 = base64.b64encode(image_bytes).decode()
 
             # Get previously detected items for this job
-            prev_items = await self.get_items(room_id)  # <-- await here!
+            prev_items = await self.get_items(room_id)
             exclude_text = ""
             if prev_items:
                 exclude_text = (
