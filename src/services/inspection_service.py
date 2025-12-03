@@ -30,6 +30,7 @@ class InspectionService:
 
     async def analyze_video_background(self, job_id: str, object_name: str, room_id: str):
         queue = get_job_queue(room_id)
+        print("detect items from AI hit start")
         try:
             # Read video from MinIO
             video_bytes = minio_client.get_file_content(object_name)
@@ -65,6 +66,7 @@ class InspectionService:
             async for chunk in self.structured_llm.astream([message]):
                 # Serialize for SSE queue
                 await queue.put(chunk.model_dump_json())
+                print("detect items from AI hit end")
 
                 # Save chunk to DB
                 asyncio.create_task(self._save_chunk(job_id, chunk, object_name, room_id))

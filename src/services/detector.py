@@ -1,7 +1,8 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-from ..routers.queue import get_yolo_queue
+from ..routers.queue import get_job_queue
+import json
 yolo_model = YOLO("yolov8n.pt")  # nano model (lightweight)
 
 # def detect_items_from_bytes(video_bytes: bytes):
@@ -49,7 +50,7 @@ yolo_model = YOLO("yolov8n.pt")  # nano model (lightweight)
 #     return detected
 
 async def detect_items_from_bytes(video_bytes: bytes, room_id: str):
-    queue = get_yolo_queue(room_id)
+    queue = get_job_queue(room_id)
     print("Detect items from API hit start")
     temp = "/tmp/detect_temp.mp4"
     with open(temp, "wb") as f:
@@ -109,11 +110,13 @@ async def detect_items_from_bytes(video_bytes: bytes, room_id: str):
                 #     "item": label,
                 #     "description": ""
                 # })
-                await queue.put({
-                    "timestamp": int(frame_idx / fps) if fps > 0 else 0,
-                    "item": label,
-                    "description": ""
-                })
+                await queue.put(json.dumps({"issues":[
+                    {
+                        "timestamp": int(frame_idx / fps) if fps > 0 else 0,
+                        "item": label,
+                        "description": ""
+                    }
+                ]}))
 
         frame_idx += 1
         frame_counter += 1

@@ -34,17 +34,17 @@ async def analyze_video(
         file_content = await file.read()
         minio_client.upload_bytes(file_content, object_name, content_type=file.content_type)
 
+        background.add_task(
+            detect_items_from_bytes,
+            file_content,
+            room_id
+        )
+
         # Start background task
         background.add_task(
             inspection_service.analyze_video_background,
             job_id,
             object_name, 
-            room_id
-        )
-
-        background.add_task(
-            detect_items_from_bytes,
-            file_content,
             room_id
         )
 
